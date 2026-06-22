@@ -6,18 +6,9 @@
 # export_scenarios.py, and lets the sponsor explore station configurations
 # interactively. No optimization runs here — sliders select precomputed
 # scenarios, so the app responds instantly.
-#
-# HOSTING (shinyapps.io):
-#   1. Commit outputs/shiny_bundle.json to a PUBLIC GitHub repo.
-#   2. Open the file on GitHub, click "Raw", copy that URL.
-#   3. Paste it into BUNDLE_URL below.
-#   4. In RStudio: install.packages(c("shiny","leaflet","jsonlite",
-#        "bslib","dplyr","scales")); rsconnect::deployApp()
-#
-# RUNNING LOCALLY:
-#   Either leave BUNDLE_URL pointing at the raw GitHub file, or set it to a
-#   local path like "outputs/shiny_bundle.json".
 # =============================================================================
+
+# install.packages(c("shiny", "bslib", "leaflet", "jsonlite", "dplyr", "scales", "rsconnect"))
 
 library(shiny)
 library(bslib)
@@ -25,10 +16,11 @@ library(leaflet)
 library(jsonlite)
 library(dplyr)
 library(scales)
+library(rsconnect)
 
 # ── DATA SOURCE ──────────────────────────────────────────────────────────────
 # Replace with your raw GitHub URL after committing the bundle.
-BUNDLE_URL <- "https://raw.githubusercontent.com/USER/REPO/main/shiny_bundle.json"
+BUNDLE_URL <- "https://raw.githubusercontent.com/Ithorian123/gofd-dashboard/refs/heads/main/shiny_bundle.json"
 
 # Load once at startup (works for both a URL and a local path).
 bundle <- jsonlite::fromJSON(BUNDLE_URL, simplifyVector = FALSE)
@@ -84,15 +76,15 @@ ui <- page_sidebar(
     "border-radius" = "0.5rem"
   ),
   fillable = FALSE,
-
+  
   sidebar = sidebar(
     width = 320,
     class = "p-3",
-
+    
     div(class = "fw-bold text-uppercase",
         style = paste0("font-size:0.72rem; letter-spacing:0.08em; color:", C$mute, ";"),
         "Scenario controls"),
-
+    
     # Number of stations
     div(style = "margin-top:0.6rem;",
         tags$label("Number of stations", class = "fw-semibold",
@@ -101,19 +93,19 @@ ui <- page_sidebar(
                     min = min(station_counts), max = max(station_counts),
                     value = 4, step = 1, ticks = TRUE, width = "100%")
     ),
-
+    
     # Staffing
     div(style = "margin-top:0.4rem;",
         tags$label("Staffed stations", class = "fw-semibold",
                    style = paste0("color:", C$ink, ";")),
         radioButtons("staff", NULL,
-                     choiceNames = c("Central only (career)",
+                     choiceNames = c("Central only",
                                      "Central + 1 optimally chosen"),
                      choiceValues = c(1, 2), selected = 1)
     ),
-
+    
     hr(style = paste0("border-color:", C$line, ";")),
-
+    
     # Development projections
     div(
       tags$label("Include approved developments", class = "fw-semibold",
@@ -124,7 +116,7 @@ ui <- page_sidebar(
       checkboxInput("dev_on", "Project future call volume from new units",
                     value = TRUE)
     ),
-
+    
     conditionalPanel(
       condition = "input.dev_on == true",
       div(style = "margin-top:0.2rem;",
@@ -144,9 +136,9 @@ ui <- page_sidebar(
                 "Scale sweep not yet loaded — showing 100% projection.")
       )
     ),
-
+    
     hr(style = paste0("border-color:", C$line, ";")),
-
+    
     # Map coloring toggle
     div(
       tags$label("Map shading", class = "fw-semibold",
@@ -157,15 +149,15 @@ ui <- page_sidebar(
                    choiceValues = c("coverage", "assignment"),
                    selected = "coverage")
     ),
-
+    
     checkboxInput("show_baseline", "Overlay current 6 stations", value = FALSE),
-
+    
     div(style = paste0("margin-top:auto; font-size:0.7rem; color:", C$mute,
                        "; padding-top:1rem;"),
         sprintf("Every parcel reachable within %d min. Volunteer turnout penalty: %.1f min.",
                 meta$coverage_minutes, meta$turnout_penalty_min))
   ),
-
+  
   # ── Main area ──────────────────────────────────────────────────────────────
   # Top: stat cards. Middle: map. Bottom: comparison vs current.
   layout_columns(
@@ -206,36 +198,39 @@ ui <- page_sidebar(
       )
     )
   ),
-
+  
   # Map card
   card(
     full_screen = TRUE,
+    height = 480,
     card_header(
       div(class = "d-flex justify-content-between align-items-center",
           span("Station configuration & coverage", class = "fw-semibold"),
           span(textOutput("map_caption", inline = TRUE),
                style = paste0("font-size:0.8rem; color:", C$mute, ";")))
     ),
-    leafletOutput("map", height = 520)
+    leafletOutput("map", height = "100%")
   ),
-
+  
   # Legend + station list
-  layout_columns(
-    col_widths = c(7, 5),
-    card(
-      card_header(span("How to read the map", class = "fw-semibold")),
-      uiOutput("legend_ui")
-    ),
-    card(
-      card_header(span("Open stations this scenario", class = "fw-semibold")),
-      tableOutput("station_table")
-    )
+  div(class = "mt-3",
+      layout_columns(
+        col_widths = c(7, 5),
+        card(
+          card_header(span("How to read the map", class = "fw-semibold")),
+          uiOutput("legend_ui")
+        ),
+        card(
+          card_header(span("Open stations this scenario", class = "fw-semibold")),
+          tableOutput("station_table")
+        )
+      )
   )
 )
 
 # ── SERVER ───────────────────────────────────────────────────────────────────
 server <- function(input, output, session) {
-
+  
   # Resolve the slider state to a precomputed scenario key.
   current_key <- reactive({
     N  <- as.integer(input$n_stations)
@@ -247,7 +242,7 @@ server <- function(input, output, session) {
       sprintf("dev0_N%d_st%d", N, st)
     }
   })
-
+  
   scn <- reactive({
     key <- current_key()
     s <- scenarios[[key]]
@@ -259,7 +254,7 @@ server <- function(input, output, session) {
     }
     s
   })
-
+  
   # Parcel rows -> data frame  (lon, lat, eff_min, assigned_idx)
   parcels_df <- reactive({
     rows <- scn()$parcels
@@ -268,7 +263,7 @@ server <- function(input, output, session) {
     names(df) <- c("lon", "lat", "eff", "assigned")
     df
   })
-
+  
   open_stations_df <- reactive({
     idx <- unlist(scn()$open_idx)
     staffed <- unlist(scn()$staffed_idx)
@@ -279,11 +274,11 @@ server <- function(input, output, session) {
                        df$name)
     df
   })
-
+  
   # ── Stat cards ──────────────────────────────────────────────────────────────
   m_overall <- reactive(scn()$metrics$overall)
   b_overall <- baseline$metrics$overall
-
+  
   fmt_min <- function(x) sprintf("%.1f min", x)
   delta_txt <- function(now, base, unit = "min", invert = TRUE) {
     d <- now - base
@@ -291,7 +286,7 @@ server <- function(input, output, session) {
     arrow <- if (d < 0) "▼" else if (d > 0) "▲" else "—"
     sprintf("%s %+.1f %s vs current", arrow, d, unit)
   }
-
+  
   output$vb_avg       <- renderText(fmt_min(m_overall()$avg))
   output$vb_avg_delta <- renderText(delta_txt(m_overall()$avg, b_overall$avg))
   output$vb_p8        <- renderText(sprintf("%.1f%%", m_overall()$pct_8))
@@ -299,14 +294,14 @@ server <- function(input, output, session) {
   output$vb_p12       <- renderText(sprintf("%.1f%%", m_overall()$pct_12))
   output$vb_p12_delta <- renderText(sprintf("current: %.1f%%", b_overall$pct_12))
   output$vb_staffed   <- renderText(length(unlist(scn()$staffed_idx)))
-
+  
   output$map_caption <- renderText({
     sprintf("%d stations  ·  %s",
             scn()$N,
             if (input$dev_on) paste0("developments at ", input$dev_scale, "%")
             else "current demand only")
   })
-
+  
   # ── Map ─────────────────────────────────────────────────────────────────────
   output$map <- renderLeaflet({
     leaflet(options = leafletOptions(zoomControl = TRUE,
@@ -314,12 +309,12 @@ server <- function(input, output, session) {
       addProviderTiles(providers$CartoDB.Positron) |>
       setView(lng = meta$map_center[[2]], lat = meta$map_center[[1]], zoom = 11)
   })
-
+  
   observe({
     df  <- parcels_df()
     st  <- open_stations_df()
     mode <- input$map_mode
-
+    
     # Parcel point colors
     if (mode == "coverage") {
       cols <- cov_pal(df$eff)
@@ -332,18 +327,18 @@ server <- function(input, output, session) {
         domain = assigned_ids)
       cols <- pal(df$assigned)
     }
-
+    
     proxy <- leafletProxy("map") |>
       clearGroup("parcels") |>
       clearGroup("stations") |>
       clearGroup("baseline")
-
+    
     proxy <- proxy |>
       addCircleMarkers(data = df, lng = ~lon, lat = ~lat,
                        radius = 3, stroke = FALSE, fillOpacity = 0.55,
                        fillColor = cols, group = "parcels",
                        label = ~sprintf("%.1f min", eff))
-
+    
     # Baseline overlay (current stations) if requested
     if (isTRUE(input$show_baseline)) {
       b_idx <- unlist(baseline$open_idx)
@@ -355,12 +350,12 @@ server <- function(input, output, session) {
                          group = "baseline",
                          label = ~ifelse(is.na(name), "Current station", name))
     }
-
+    
     # Open stations for this scenario — staffed are larger / filled red,
     # unstaffed are hollow.
     staffed_df  <- st[st$staffed, , drop = FALSE]
     unstaffed_df <- st[!st$staffed, , drop = FALSE]
-
+    
     if (nrow(unstaffed_df) > 0) {
       proxy <- proxy |>
         addCircleMarkers(data = unstaffed_df, lng = ~lon, lat = ~lat,
@@ -378,7 +373,7 @@ server <- function(input, output, session) {
                          label = ~paste0(label, " (staffed)"))
     }
   })
-
+  
   # ── Legend ──────────────────────────────────────────────────────────────────
   output$legend_ui <- renderUI({
     if (input$map_mode == "coverage") {
@@ -414,13 +409,13 @@ server <- function(input, output, session) {
       )
     }
   })
-
+  
   # ── Station table ────────────────────────────────────────────────────────────
   output$station_table <- renderTable({
     st <- open_stations_df()
     data.frame(
       Station = st$label,
-      Role    = ifelse(st$staffed, "Staffed (career)", "Volunteer"),
+      Role    = ifelse(st$staffed, "Staffed", "Volunteer"),
       Type    = ifelse(is.na(st$name), "Proposed new site", "Existing"),
       check.names = FALSE
     )
